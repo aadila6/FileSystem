@@ -315,9 +315,19 @@ int fs_write(int fd, void *buf, size_t count)
     int steps_to_target = fileD[fd].offset / BLOCK_SIZE;
     /* find the offset of the local buffer (where to start to read) */
     int local_offset = fileD[fd].offset % BLOCK_SIZE;
+    
     /* find the target data block */
     int blk_itr = block_iter(fileD[fd].root->firstIndex, steps_to_target);
-    if (blk_itr == FAT_EOC){
+    if (local_offset == 0 && blk_itr == FAT_EOC && fileD[fd].root->firstIndex != FAT_EOC) {
+        int fatspace = findFatSpace();
+        int preblock = block_iter(fileD[fd].root->firstIndex, steps_to_target-1);
+        if (preblock > superblock.numDataBlock) {
+            printf("something concerning happened");
+        }
+        fat[preblock] = fatspace;
+        blk_itr = fatspace;
+    }
+    if (fileD[fd].root->firstIndex == FAT_EOC) { 
         /* We know fat[blk_itr] = EOC by dafault. */
         blk_itr = findFatSpace();
         fileD[fd].root->firstIndex = blk_itr;
