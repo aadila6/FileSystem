@@ -244,7 +244,7 @@ int fs_open(const char *filename)
 
 int fs_close(int fd)
 {
-    if (fileD[fd].root == NULL || fd>FS_OPEN_MAX_COUNT) {
+    if (fileD[fd].root == NULL || fd > FS_OPEN_MAX_COUNT) {
         return -1;
     }
     fileD[fd].offset = 0;
@@ -258,6 +258,7 @@ int fs_stat(int fd)
     if (!fileD[fd].root) {
         return -1;
     }
+    /* prints the file size of the passed file descriptor */
     return fileD[fd].root->fileSize;
 }
 
@@ -269,6 +270,7 @@ int fs_lseek(int fd, size_t offset)
     if (!fileD[fd].root) {
         return -1;
     }
+    /* set the new offset */
     fileD[fd].offset = offset;
     return 0;
 }
@@ -315,48 +317,67 @@ int fs_write(int fd, void *buf, size_t count)
     int steps_to_target = fileD[fd].offset / BLOCK_SIZE;
     /* find the offset of the local buffer (where to start to read) */
     int local_offset = fileD[fd].offset % BLOCK_SIZE;
-    
     /* find the target data block */
     int blk_itr = block_iter(fileD[fd].root->firstIndex, steps_to_target);
-    if (local_offset == 0 && blk_itr == FAT_EOC && fileD[fd].root->firstIndex != FAT_EOC) {
+    /* edge case - first write operation begins over a block boundary */
+    if (local_offset == 0 && blk_itr == FAT_EOC && 
+    fileD[fd].root->firstIndex != FAT_EOC) {
+        /* find a free fat space */
         int fatspace = findFatSpace();
-        int preblock = block_iter(fileD[fd].root->firstIndex, steps_to_target-1);
+        /* set preblock to be the block before the target block */
+        int preblock = block_iter(fileD[fd].root->firstIndex, 
+        steps_to_target-1);
         if (preblock > superblock.numDataBlock) {
             printf("something concerning happened");
         }
         fat[preblock] = fatspace;
         blk_itr = fatspace;
     }
+    /* if the first block of the file is FAT_EOC */
     if (fileD[fd].root->firstIndex == FAT_EOC) { 
         /* We know fat[blk_itr] = EOC by dafault. */
         blk_itr = findFatSpace();
         fileD[fd].root->firstIndex = blk_itr;
     }
+    /* read the target datablock into into localBuf */
     block_read(blk_itr + superblock.dataIndex, (void*)localBuf);
-
-    for (int j = local_offset; buffer_index< count && j < BLOCK_SIZE; buffer_index++, j++) {
+    for (int j = local_offset; buffer_index< count && j < BLOCK_SIZE; 
+    buffer_index++, j++) {
+        /* write into localBuf from the offset index j based on buf */
         localBuf[j] = ((uint8_t *)buf)[buffer_index];
         temp_counter++;
     }
+    /* writeback to the disk */
     block_write(blk_itr + superblock.dataIndex, (void*)localBuf);
+    /* while there are more characters to be written into localBuf */
     while (temp_counter < count) {
         next = next_block(blk_itr);
-        if (next == -1){
+        /* if there is no next */
+        if (next == -1) {
             next = findFatSpace();
-            fat[blk_itr] = next; //fat[next]=FAT_EOC by default
+            fat[blk_itr] = next; 
         }
         blk_itr = next;
+        /* update local buffer */
         block_read(next + superblock.dataIndex, (void*)localBuf);
-        for (int j = 0; buffer_index < count && j < BLOCK_SIZE; buffer_index++, j++) {
+        for (int j = 0; buffer_index < count && j < BLOCK_SIZE; 
+        buffer_index++, j++) {
+            /* write into localBuf from the offset index j based on buf */
             localBuf[j] = ((uint8_t *)buf)[buffer_index];
             temp_counter++;
         }
+        /* writeback to the disk */
         block_write(blk_itr + superblock.dataIndex, (void*)localBuf);
     }
-    if (fileD[fd].offset + temp_counter > fileD[fd].root->fileSize ){
-        fileD[fd].root->fileSize += temp_counter + fileD[fd].offset - fileD[fd].root->fileSize;
+    /* if the write operation increases the size of the file, increate the filesize */
+    if (fileD[fd].offset + temp_counter > fileD[fd].root->fileSize ) {
+        /* increase filesize */
+        fileD[fd].root->fileSize += temp_counter + fileD[fd].offset - 
+        fileD[fd].root->fileSize;
     }
+    /* update file offset */
     fileD[fd].offset += temp_counter;
+    /* return bytes written to the file */
     return temp_counter;
 }
 
@@ -389,7 +410,8 @@ int fs_read(int fd, void *buf, size_t count)
         blk_itr = next;
         /* update localBuf with the new next datablock */
         block_read(next + superblock.dataIndex, (void*)localBuf);
-        for (int j = 0; buffer_index < count && j < BLOCK_SIZE; buffer_index++, j++) {
+        for (int j = 0; buffer_index < count && j < BLOCK_SIZE; 
+        buffer_index++, j++) {
             /* keep reading into buf from where it was left at the end 
             of the datablock */
             ((uint8_t *)buf)[buffer_index] = localBuf[j];
